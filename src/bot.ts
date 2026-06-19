@@ -23,6 +23,7 @@ import {
   type Message,
   type TextBasedChannel,
 } from "discord.js";
+import { extractErrorMessage } from "@vibearound/plugin-channel-sdk";
 import type { Agent, ContentBlock } from "@vibearound/plugin-channel-sdk";
 import type { AgentStreamHandler } from "./agent-stream.js";
 
@@ -288,7 +289,7 @@ export class DiscordBot {
       this.log("info", `prompt done channel=${chatId} stopReason=${response.stopReason}`);
       await this.streamHandler?.onTurnEnd(chatId);
     } catch (error: unknown) {
-      const msg = error instanceof Error ? error.message : String(error);
+      const msg = extractErrorMessage(error);
       this.log("error", `prompt failed channel=${chatId}: ${msg}`);
       await this.streamHandler?.onTurnError(chatId, msg);
     } finally {
