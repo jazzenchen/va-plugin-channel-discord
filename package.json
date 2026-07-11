@@ -19,6 +19,9 @@
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
   },
+  "overrides": {
+    "undici": "6.27.0"
+  },
   "engines": {
     "node": ">=20.0.0"
   }
