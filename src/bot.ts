@@ -25,6 +25,7 @@ import {
 } from "discord.js";
 import {
   cancelChannelPrompt,
+  channelTargetFromInboundContext,
   extractErrorMessage,
   isChannelStopCommand,
   sendChannelPrompt,
@@ -241,6 +242,7 @@ export class DiscordBot {
       scope: isDM ? "dm" : "group",
       addressedBy: isDM ? "dm" : "mention",
     });
+    const target = channelTargetFromInboundContext(context);
 
     if (text && await this.cancelIfRequested(text, context)) return;
 
@@ -285,7 +287,7 @@ export class DiscordBot {
     if (contentBlocks.length === 0) return;
 
     // If a permission prompt is awaiting text, consume this message.
-    if (text && this.streamHandler?.consumePendingText(chatId, text)) {
+    if (text && this.streamHandler?.consumePendingText(target, text)) {
       return;
     }
 
@@ -301,7 +303,7 @@ export class DiscordBot {
     }, 8000); // Discord typing expires after 10s
 
     // Notify stream handler before prompt
-    this.streamHandler?.onPromptSent(chatId);
+    this.streamHandler?.onPromptSent(target);
 
     try {
       const response = await sendChannelPrompt(this.agent, {
@@ -309,15 +311,15 @@ export class DiscordBot {
         prompt: contentBlocks,
       });
       if (!response) {
-        await this.streamHandler?.onTurnEnd(chatId);
+        await this.streamHandler?.onTurnEnd(target);
         return;
       }
       this.log("info", `prompt done channel=${chatId} stopReason=${response.stopReason}`);
-      await this.streamHandler?.onTurnEnd(chatId);
+      await this.streamHandler?.onTurnEnd(target);
     } catch (error: unknown) {
       const msg = extractErrorMessage(error);
       this.log("error", `prompt failed channel=${chatId}: ${msg}`);
-      await this.streamHandler?.onTurnError(chatId, msg);
+      await this.streamHandler?.onTurnError(target, msg);
     } finally {
       clearInterval(typingInterval);
     }
