@@ -23,9 +23,19 @@ import {
   type Message,
   type TextBasedChannel,
 } from "discord.js";
-import { extractErrorMessage } from "@vibearound/plugin-channel-sdk";
-import type { Agent, ContentBlock } from "@vibearound/plugin-channel-sdk";
+import {
+  cancelChannelPrompt,
+  extractErrorMessage,
+  isChannelStopCommand,
+  sendChannelPrompt,
+} from "@vibearound/plugin-channel-sdk";
+import type {
+  Agent,
+  ChannelInboundContext,
+  ContentBlock,
+} from "@vibearound/plugin-channel-sdk";
 import type { AgentStreamHandler } from "./agent-stream.js";
+import { createDiscordChannelContext } from "./route-context.js";
 
 type LogFn = (level: string, msg: string) => void;
 const DISCORD_CONNECT_TIMEOUT_MS = 15_000;
@@ -36,15 +46,26 @@ export class DiscordBot {
   private log: LogFn;
   private cacheDir: string;
   private botToken: string;
+  private channelInstanceId: string;
+  private actorId: string;
   private streamHandler: AgentStreamHandler | null = null;
   /** Cache of sent messages so we can edit them later. */
   private messageCache = new Map<string, Message>();
 
-  constructor(botToken: string, agent: Agent, log: LogFn, cacheDir: string) {
+  constructor(
+    botToken: string,
+    agent: Agent,
+    log: LogFn,
+    cacheDir: string,
+    channelInstanceId: string,
+    actorId: string,
+  ) {
     this.agent = agent;
     this.log = log;
     this.cacheDir = cacheDir;
     this.botToken = botToken;
+    this.channelInstanceId = channelInstanceId;
+    this.actorId = actorId;
 
     this.client = new Client({
       intents: [
@@ -77,23 +98,6 @@ export class DiscordBot {
       this.client.login(this.botToken).then(() => undefined),
       "Discord gateway connection timed out",
     );
-  }
-
-  /** Probe bot identity. */
-  async probe(): Promise<{ id: string; username: string }> {
-    // Wait for the client to be ready
-    await withConnectTimeout(
-      new Promise<void>((resolve) => {
-        if (this.client.isReady()) {
-          resolve();
-        } else {
-          this.client.once(Events.ClientReady, () => resolve());
-        }
-      }),
-      "Discord readiness probe timed out",
-    );
-    const user = this.client.user!;
-    return { id: user.id, username: user.username };
   }
 
   /** Stop the bot. */
@@ -229,6 +233,17 @@ export class DiscordBot {
 
     this.log("debug", `message channel=${chatId} text=${(text ?? "").slice(0, 80)}`);
 
+    const context = this.channelContext({
+      chatId,
+      topicId: message.channel.isThread() ? message.channelId : undefined,
+      senderId: message.author.id,
+      platformMessageId: message.id,
+      scope: isDM ? "dm" : "group",
+      addressedBy: isDM ? "dm" : "mention",
+    });
+
+    if (text && await this.cancelIfRequested(text, context)) return;
+
     // Build content blocks
     const contentBlocks: ContentBlock[] = [];
 
@@ -289,10 +304,14 @@ export class DiscordBot {
     this.streamHandler?.onPromptSent(chatId);
 
     try {
-      const response = await this.agent.prompt({
-        sessionId: chatId,
+      const response = await sendChannelPrompt(this.agent, {
+        context,
         prompt: contentBlocks,
       });
+      if (!response) {
+        await this.streamHandler?.onTurnEnd(chatId);
+        return;
+      }
       this.log("info", `prompt done channel=${chatId} stopReason=${response.stopReason}`);
       await this.streamHandler?.onTurnEnd(chatId);
     } catch (error: unknown) {
@@ -302,6 +321,37 @@ export class DiscordBot {
     } finally {
       clearInterval(typingInterval);
     }
+  }
+
+  private channelContext(
+    route: Omit<ChannelInboundContext, "channelInstanceId" | "actorId">,
+  ): ChannelInboundContext {
+    return createDiscordChannelContext(
+      {
+        channelInstanceId: this.channelInstanceId,
+        actorId: this.actorId,
+        botUserId: this.client.user?.id,
+      },
+      route,
+    );
+  }
+
+  private async cancelIfRequested(
+    text: string,
+    context: ChannelInboundContext,
+  ): Promise<boolean> {
+    if (!isChannelStopCommand(text)) return false;
+
+    try {
+      const cancelled = await cancelChannelPrompt(this.agent, { context });
+      this.log("info", `cancel requested channel=${context.chatId} sent=${cancelled}`);
+    } catch (error: unknown) {
+      this.log(
+        "error",
+        `cancel failed channel=${context.chatId}: ${extractErrorMessage(error)}`,
+      );
+    }
+    return true;
   }
 
   /**
