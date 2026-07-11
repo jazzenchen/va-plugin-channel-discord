@@ -20,7 +20,7 @@
     "typescript": "^5.7.0"
   },
   "overrides": {
-    "undici": "6.27.0"
+    "undici@6.24.1": "6.27.0"
   },
   "engines": {
     "node": ">=20.0.0"
