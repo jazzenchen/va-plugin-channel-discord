@@ -19,14 +19,14 @@ export interface DiscordInboundRoute {
   addressedBy: AddressedBy;
 }
 
-/** Build the platform-neutral route while preferring Discord's real bot user ID. */
+/** Keep the host instance stable; use Discord's bot user ID as the addressed actor. */
 export function createDiscordChannelContext(
   identity: DiscordRouteIdentity,
   route: DiscordInboundRoute,
 ): ChannelInboundContext {
   return {
-    channelInstanceId: identity.botUserId ?? identity.channelInstanceId,
-    actorId: identity.actorId,
+    channelInstanceId: identity.channelInstanceId,
+    actorId: identity.botUserId ?? identity.actorId,
     ...route,
   };
 }
