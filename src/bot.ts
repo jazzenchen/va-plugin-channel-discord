@@ -28,12 +28,14 @@ import type { Agent, ContentBlock } from "@vibearound/plugin-channel-sdk";
 import type { AgentStreamHandler } from "./agent-stream.js";
 
 type LogFn = (level: string, msg: string) => void;
+const DISCORD_CONNECT_TIMEOUT_MS = 15_000;
 
 export class DiscordBot {
   readonly client: Client;
   private agent: Agent;
   private log: LogFn;
   private cacheDir: string;
+  private botToken: string;
   private streamHandler: AgentStreamHandler | null = null;
   /** Cache of sent messages so we can edit them later. */
   private messageCache = new Map<string, Message>();
@@ -42,6 +44,7 @@ export class DiscordBot {
     this.agent = agent;
     this.log = log;
     this.cacheDir = cacheDir;
+    this.botToken = botToken;
 
     this.client = new Client({
       intents: [
@@ -58,7 +61,6 @@ export class DiscordBot {
     });
 
     this.registerHandlers();
-    this.client.login(botToken);
   }
 
   setStreamHandler(handler: AgentStreamHandler): void {
@@ -66,25 +68,30 @@ export class DiscordBot {
   }
 
   /**
-   * Start the bot. No-op for Discord — the constructor eagerly calls
-   * `client.login()`, so the gateway connection is already in flight by
-   * the time the SDK runner calls this. Exists purely to satisfy the
-   * `ChannelBot` interface contract used by `runChannelPlugin`.
+   * Start the bot and surface login failures to the SDK lifecycle. Starting
+   * login in the constructor leaves rejected promises detached, so the host
+   * can report a dead Discord bot as Running until the watchdog fires.
    */
   async start(): Promise<void> {
-    // Intentionally empty.
+    await withConnectTimeout(
+      this.client.login(this.botToken).then(() => undefined),
+      "Discord gateway connection timed out",
+    );
   }
 
   /** Probe bot identity. */
   async probe(): Promise<{ id: string; username: string }> {
     // Wait for the client to be ready
-    await new Promise<void>((resolve) => {
-      if (this.client.isReady()) {
-        resolve();
-      } else {
-        this.client.once(Events.ClientReady, () => resolve());
-      }
-    });
+    await withConnectTimeout(
+      new Promise<void>((resolve) => {
+        if (this.client.isReady()) {
+          resolve();
+        } else {
+          this.client.once(Events.ClientReady, () => resolve());
+        }
+      }),
+      "Discord readiness probe timed out",
+    );
     const user = this.client.user!;
     return { id: user.id, username: user.username };
   }
@@ -336,6 +343,20 @@ export class DiscordBot {
       `cached attachment ${buf.length} bytes → ${localPath}`,
     );
     return localPath;
+  }
+}
+
+async function withConnectTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), DISCORD_CONNECT_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
