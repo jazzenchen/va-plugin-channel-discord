@@ -23,25 +23,50 @@ import {
   type Message,
   type TextBasedChannel,
 } from "discord.js";
-import { extractErrorMessage } from "@vibearound/plugin-channel-sdk";
-import type { Agent, ContentBlock } from "@vibearound/plugin-channel-sdk";
+import {
+  cancelChannelPrompt,
+  channelTargetFromInboundContext,
+  extractErrorMessage,
+  isChannelStopCommand,
+  sendChannelPrompt,
+} from "@vibearound/plugin-channel-sdk";
+import type {
+  Agent,
+  ChannelInboundContext,
+  ContentBlock,
+} from "@vibearound/plugin-channel-sdk";
 import type { AgentStreamHandler } from "./agent-stream.js";
+import { createDiscordChannelContext } from "./route-context.js";
 
 type LogFn = (level: string, msg: string) => void;
+const DISCORD_CONNECT_TIMEOUT_MS = 15_000;
 
 export class DiscordBot {
   readonly client: Client;
   private agent: Agent;
   private log: LogFn;
   private cacheDir: string;
+  private botToken: string;
+  private channelInstanceId: string;
+  private actorId: string;
   private streamHandler: AgentStreamHandler | null = null;
   /** Cache of sent messages so we can edit them later. */
   private messageCache = new Map<string, Message>();
 
-  constructor(botToken: string, agent: Agent, log: LogFn, cacheDir: string) {
+  constructor(
+    botToken: string,
+    agent: Agent,
+    log: LogFn,
+    cacheDir: string,
+    channelInstanceId: string,
+    actorId: string,
+  ) {
     this.agent = agent;
     this.log = log;
     this.cacheDir = cacheDir;
+    this.botToken = botToken;
+    this.channelInstanceId = channelInstanceId;
+    this.actorId = actorId;
 
     this.client = new Client({
       intents: [
@@ -58,7 +83,6 @@ export class DiscordBot {
     });
 
     this.registerHandlers();
-    this.client.login(botToken);
   }
 
   setStreamHandler(handler: AgentStreamHandler): void {
@@ -66,27 +90,15 @@ export class DiscordBot {
   }
 
   /**
-   * Start the bot. No-op for Discord — the constructor eagerly calls
-   * `client.login()`, so the gateway connection is already in flight by
-   * the time the SDK runner calls this. Exists purely to satisfy the
-   * `ChannelBot` interface contract used by `runChannelPlugin`.
+   * Start the bot and surface login failures to the SDK lifecycle. Starting
+   * login in the constructor leaves rejected promises detached, so the host
+   * can report a dead Discord bot as Running until the watchdog fires.
    */
   async start(): Promise<void> {
-    // Intentionally empty.
-  }
-
-  /** Probe bot identity. */
-  async probe(): Promise<{ id: string; username: string }> {
-    // Wait for the client to be ready
-    await new Promise<void>((resolve) => {
-      if (this.client.isReady()) {
-        resolve();
-      } else {
-        this.client.once(Events.ClientReady, () => resolve());
-      }
-    });
-    const user = this.client.user!;
-    return { id: user.id, username: user.username };
+    await withConnectTimeout(
+      this.client.login(this.botToken).then(() => undefined),
+      "Discord gateway connection timed out",
+    );
   }
 
   /** Stop the bot. */
@@ -222,6 +234,18 @@ export class DiscordBot {
 
     this.log("debug", `message channel=${chatId} text=${(text ?? "").slice(0, 80)}`);
 
+    const context = this.channelContext({
+      chatId,
+      topicId: message.channel.isThread() ? message.channelId : undefined,
+      senderId: message.author.id,
+      platformMessageId: message.id,
+      scope: isDM ? "dm" : "group",
+      addressedBy: isDM ? "dm" : "mention",
+    });
+    const target = channelTargetFromInboundContext(context);
+
+    if (text && await this.cancelIfRequested(text, context)) return;
+
     // Build content blocks
     const contentBlocks: ContentBlock[] = [];
 
@@ -263,7 +287,7 @@ export class DiscordBot {
     if (contentBlocks.length === 0) return;
 
     // If a permission prompt is awaiting text, consume this message.
-    if (text && this.streamHandler?.consumePendingText(chatId, text)) {
+    if (text && this.streamHandler?.consumePendingText(target, text)) {
       return;
     }
 
@@ -279,22 +303,57 @@ export class DiscordBot {
     }, 8000); // Discord typing expires after 10s
 
     // Notify stream handler before prompt
-    this.streamHandler?.onPromptSent(chatId);
+    this.streamHandler?.onPromptSent(target);
 
     try {
-      const response = await this.agent.prompt({
-        sessionId: chatId,
+      const response = await sendChannelPrompt(this.agent, {
+        context,
         prompt: contentBlocks,
       });
+      if (!response) {
+        await this.streamHandler?.onTurnEnd(target);
+        return;
+      }
       this.log("info", `prompt done channel=${chatId} stopReason=${response.stopReason}`);
-      await this.streamHandler?.onTurnEnd(chatId);
+      await this.streamHandler?.onTurnEnd(target);
     } catch (error: unknown) {
       const msg = extractErrorMessage(error);
       this.log("error", `prompt failed channel=${chatId}: ${msg}`);
-      await this.streamHandler?.onTurnError(chatId, msg);
+      await this.streamHandler?.onTurnError(target, msg);
     } finally {
       clearInterval(typingInterval);
     }
+  }
+
+  private channelContext(
+    route: Omit<ChannelInboundContext, "channelInstanceId" | "actorId">,
+  ): ChannelInboundContext {
+    return createDiscordChannelContext(
+      {
+        channelInstanceId: this.channelInstanceId,
+        actorId: this.actorId,
+        botUserId: this.client.user?.id,
+      },
+      route,
+    );
+  }
+
+  private async cancelIfRequested(
+    text: string,
+    context: ChannelInboundContext,
+  ): Promise<boolean> {
+    if (!isChannelStopCommand(text)) return false;
+
+    try {
+      const cancelled = await cancelChannelPrompt(this.agent, { context });
+      this.log("info", `cancel requested channel=${context.chatId} sent=${cancelled}`);
+    } catch (error: unknown) {
+      this.log(
+        "error",
+        `cancel failed channel=${context.chatId}: ${extractErrorMessage(error)}`,
+      );
+    }
+    return true;
   }
 
   /**
@@ -336,6 +395,20 @@ export class DiscordBot {
       `cached attachment ${buf.length} bytes → ${localPath}`,
     );
     return localPath;
+  }
+}
+
+async function withConnectTimeout<T>(promise: Promise<T>, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), DISCORD_CONNECT_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 

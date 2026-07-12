@@ -15,12 +15,15 @@ runChannelPlugin({
   name: "vibearound-discord",
   version: "0.1.0",
   requiredConfig: ["bot_token"],
-  createBot: ({ config, agent, log, cacheDir }) =>
-    new DiscordBot(config.bot_token as string, agent, log, cacheDir),
-  afterCreate: async (bot, log) => {
-    const botInfo = await bot.probe();
-    log("info", `bot identity: @${botInfo.username} (${botInfo.id})`);
-  },
+  createBot: ({ config, agent, log, cacheDir, channelInstanceId, actorId }) =>
+    new DiscordBot(
+      config.bot_token as string,
+      agent,
+      log,
+      cacheDir,
+      channelInstanceId,
+      actorId,
+    ),
   createRenderer: (bot, log, verbose) =>
     new AgentStreamHandler(bot, log, verbose),
   // Heartbeat health check — gateway ws ready + latency under 10s. Discord
