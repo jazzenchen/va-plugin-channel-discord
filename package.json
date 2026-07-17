@@ -1,22 +1,26 @@
 {
-  "name": "@vibearound/plugin-discord",
-  "version": "0.5.0",
+  "name": "@vibearound/plugin-channel-discord",
+  "version": "0.6.2",
   "private": true,
   "type": "module",
   "description": "VibeAround Discord channel plugin (stdio JSON-RPC)",
   "main": "dist/main.js",
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test test/*.test.mjs",
     "dev": "tsc --watch",
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@vibearound/plugin-channel-sdk": "^0.5.0",
+    "@vibearound/plugin-channel-sdk": "^0.6.2",
     "discord.js": "^14.18.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",
     "typescript": "^5.7.0"
+  },
+  "overrides": {
+    "undici@6.24.1": "6.27.0"
   },
   "engines": {
     "node": ">=20.0.0"

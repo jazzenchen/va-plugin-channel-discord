@@ -9,6 +9,7 @@
 import {
   BlockRenderer,
   type BlockKind,
+  type ChannelTarget,
   type RequestPermissionRequest,
   type VerboseConfig,
 } from "@vibearound/plugin-channel-sdk";
@@ -33,7 +34,7 @@ export class AgentStreamHandler extends BlockRenderer<string> {
 
   /** Render permission request as a button row. */
   protected async onRequestPermission(
-    chatId: string,
+    target: ChannelTarget,
     request: RequestPermissionRequest,
     callbackId: string,
   ): Promise<void> {
@@ -48,19 +49,19 @@ export class AgentStreamHandler extends BlockRenderer<string> {
     }));
 
     await this.discordBot.sendButtons(
-      chatId,
+      target.chatId,
       `🔐 Permission required — \`${toolTitle}\``,
       buttons,
     );
   }
 
-  protected async sendText(chatId: string, text: string): Promise<void> {
-    await this.discordBot.sendMessage(chatId, text);
+  protected async sendText(target: ChannelTarget, text: string): Promise<void> {
+    await this.discordBot.sendMessage(target.chatId, text);
   }
 
-  protected async sendBlock(chatId: string, _kind: BlockKind, content: string): Promise<string | null> {
+  protected async sendBlock(target: ChannelTarget, _kind: BlockKind, content: string): Promise<string | null> {
     try {
-      return await this.discordBot.sendMessage(chatId, content);
+      return await this.discordBot.sendMessage(target.chatId, content);
     } catch (e) {
       this.log("error", `sendBlock failed: ${e}`);
       return null;
@@ -68,14 +69,14 @@ export class AgentStreamHandler extends BlockRenderer<string> {
   }
 
   protected async editBlock(
-    chatId: string,
+    target: ChannelTarget,
     ref: string,
     _kind: BlockKind,
     content: string,
     _sealed: boolean,
   ): Promise<void> {
     try {
-      await this.discordBot.editMessage(chatId, ref, content);
+      await this.discordBot.editMessage(target.chatId, ref, content);
     } catch (e) {
       this.log("error", `editBlock failed: ${e}`);
     }
