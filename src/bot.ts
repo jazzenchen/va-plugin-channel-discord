@@ -9,6 +9,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { readBoundedResponse } from "./bounded-response.js";
 import {
   ActionRowBuilder,
   type Attachment,
@@ -264,7 +265,7 @@ export class DiscordBot {
       const localPath = await this.downloadAttachment(message.channelId, attachment).catch(
         (err: unknown) => {
           const msg = err instanceof Error ? err.message : String(err);
-          this.log("warn", `failed to download attachment ${attachment.url}: ${msg}`);
+          this.log("warn", `failed to download attachment ${attachment.id}: ${msg}`);
           return null;
         },
       );
@@ -381,13 +382,13 @@ export class DiscordBot {
 
     this.log(
       "debug",
-      `downloading attachment id=${attachment.id} url=${attachment.url}`,
+      `downloading attachment id=${attachment.id}`,
     );
     const res = await fetch(attachment.url);
     if (!res.ok) {
       throw new Error(`HTTP ${res.status} fetching attachment`);
     }
-    const buf = Buffer.from(await res.arrayBuffer());
+    const buf = await readBoundedResponse(res);
     await fs.mkdir(dir, { recursive: true });
     await fs.writeFile(localPath, buf);
     this.log(
