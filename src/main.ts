@@ -13,7 +13,7 @@ import { AgentStreamHandler } from "./agent-stream.js";
 
 runChannelPlugin({
   name: "vibearound-discord",
-  version: "0.6.3",
+  version: "0.6.6",
   requiredConfig: ["bot_token"],
   createBot: ({ config, agent, log, cacheDir, channelInstanceId, actorId }) =>
     new DiscordBot(
