@@ -237,7 +237,10 @@ export class DiscordBot {
 
     if (!text && message.attachments.size === 0) return;
 
-    this.log("debug", `message channel=${chatId} text=${(text ?? "").slice(0, 80)}`);
+    this.log(
+      "debug",
+      `message channel=${chatId} text=${Boolean(text)} attachments=${message.attachments.size}`,
+    );
 
     const context = this.channelContext({
       chatId,
