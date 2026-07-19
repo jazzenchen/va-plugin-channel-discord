@@ -15,7 +15,10 @@ import {
 } from "@vibearound/plugin-channel-sdk";
 import type { DiscordBot } from "./bot.js";
 
-export class AgentStreamHandler extends BlockRenderer<string> {
+const DISCORD_MESSAGE_LIMIT = 2000;
+type DiscordMessageRef = string[];
+
+export class AgentStreamHandler extends BlockRenderer<DiscordMessageRef> {
   private discordBot: DiscordBot;
 
   constructor(discordBot: DiscordBot, verbose?: Partial<VerboseConfig>) {
@@ -52,22 +55,63 @@ export class AgentStreamHandler extends BlockRenderer<string> {
   }
 
   protected async sendText(target: ChannelTarget, text: string): Promise<void> {
-    await this.discordBot.sendMessage(target.chatId, text);
+    await this.sendContent(target, text);
   }
 
-  protected async sendBlock(target: ChannelTarget, _kind: BlockKind, content: string): Promise<string | null> {
-    return this.discordBot.sendMessage(target.chatId, content);
+  protected async sendBlock(
+    target: ChannelTarget,
+    _kind: BlockKind,
+    content: string,
+  ): Promise<DiscordMessageRef | null> {
+    return this.sendContent(target, content);
   }
 
   protected async editBlock(
     target: ChannelTarget,
-    ref: string,
+    ref: DiscordMessageRef,
     _kind: BlockKind,
     content: string,
     _sealed: boolean,
   ): Promise<void> {
-    await this.discordBot.editMessage(target.chatId, ref, content);
+    const chunks = splitDiscordContent(content);
+    const existingCount = Math.min(ref.length, chunks.length);
+
+    for (let index = 0; index < existingCount; index += 1) {
+      await this.discordBot.editMessage(target.chatId, ref[index], chunks[index]);
+    }
+    for (let index = ref.length; index < chunks.length; index += 1) {
+      ref.push(await this.discordBot.sendMessage(target.chatId, chunks[index]));
+    }
   }
+
+  private async sendContent(
+    target: ChannelTarget,
+    content: string,
+  ): Promise<DiscordMessageRef> {
+    const ref: DiscordMessageRef = [];
+    for (const chunk of splitDiscordContent(content)) {
+      ref.push(await this.discordBot.sendMessage(target.chatId, chunk));
+    }
+    return ref;
+  }
+}
+
+function splitDiscordContent(content: string): string[] {
+  const chunks: string[] = [];
+  let chunk = "";
+
+  for (const character of content) {
+    if (chunk.length + character.length > DISCORD_MESSAGE_LIMIT) {
+      chunks.push(chunk);
+      chunk = character;
+    } else {
+      chunk += character;
+    }
+  }
+  if (chunk.length > 0 || chunks.length === 0) {
+    chunks.push(chunk);
+  }
+  return chunks;
 }
 
 /** Map permission option kinds to Discord button styles. */

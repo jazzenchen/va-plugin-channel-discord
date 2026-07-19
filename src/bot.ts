@@ -113,9 +113,7 @@ export class DiscordBot {
     if (!channel || !("send" in channel)) {
       throw new Error(`Channel ${chatId} not found or not text-based`);
     }
-    // Discord has a 2000 char limit — truncate if needed
-    const truncated = content.length > 2000 ? content.slice(0, 1997) + "..." : content;
-    const msg = await channel.send(truncated);
+    const msg = await channel.send(content);
     this.messageCache.set(msg.id, msg);
     return msg.id;
   }
@@ -144,17 +142,16 @@ export class DiscordBot {
 
   /** Edit an existing message. */
   async editMessage(chatId: string, messageId: string, content: string): Promise<void> {
-    const truncated = content.length > 2000 ? content.slice(0, 1997) + "..." : content;
     const cached = this.messageCache.get(messageId);
     if (cached) {
-      await cached.edit(truncated);
+      await cached.edit(content);
       return;
     }
     // Fallback: fetch channel and message
     const channel = await this.client.channels.fetch(chatId) as TextBasedChannel | null;
     if (!channel || !("messages" in channel)) return;
     const msg = await channel.messages.fetch(messageId);
-    await msg.edit(truncated);
+    await msg.edit(content);
   }
 
   // --------------------------------------------------------------------------
