@@ -9,6 +9,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { readBoundedResponse } from "./bounded-response.js";
 import {
   ActionRowBuilder,
@@ -283,7 +284,7 @@ export class DiscordBot {
       }
       contentBlocks.push({
         type: "resource_link",
-        uri: `file://${localPath}`,
+        uri: pathToFileURL(localPath).href,
         name: attachment.name ?? "attachment",
         mimeType: attachment.contentType ?? "application/octet-stream",
       });
@@ -370,8 +371,8 @@ export class DiscordBot {
     chatId: string,
     attachment: Attachment,
   ): Promise<string> {
-    const ext = attachment.name && attachment.name.includes(".")
-      ? `.${attachment.name.split(".").pop()}`
+    const ext = attachment.name
+      ? path.extname(path.posix.basename(attachment.name.replaceAll("\\", "/")))
       : "";
     const dir = path.join(this.cacheDir, "discord", chatId);
     const localPath = path.join(dir, `${attachment.id}${ext}`);
