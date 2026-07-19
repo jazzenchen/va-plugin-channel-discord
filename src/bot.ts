@@ -167,11 +167,15 @@ export class DiscordBot {
     });
 
     this.client.on(Events.MessageCreate, (message) => {
-      this.handleMessage(message);
+      void this.handleMessage(message).catch((error: unknown) => {
+        this.log("error", `message handler failed: ${extractErrorMessage(error)}`);
+      });
     });
 
     this.client.on(Events.InteractionCreate, (interaction) => {
-      this.handleInteraction(interaction);
+      void this.handleInteraction(interaction).catch((error: unknown) => {
+        this.log("error", `interaction handler failed: ${extractErrorMessage(error)}`);
+      });
     });
 
     this.client.on(Events.Error, (error) => {

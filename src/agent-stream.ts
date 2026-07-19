@@ -15,13 +15,10 @@ import {
 } from "@vibearound/plugin-channel-sdk";
 import type { DiscordBot } from "./bot.js";
 
-type LogFn = (level: string, msg: string) => void;
-
 export class AgentStreamHandler extends BlockRenderer<string> {
   private discordBot: DiscordBot;
-  private log: LogFn;
 
-  constructor(discordBot: DiscordBot, log: LogFn, verbose?: Partial<VerboseConfig>) {
+  constructor(discordBot: DiscordBot, verbose?: Partial<VerboseConfig>) {
     super({
       streaming: true,
       flushIntervalMs: 500,
@@ -29,7 +26,6 @@ export class AgentStreamHandler extends BlockRenderer<string> {
       verbose,
     });
     this.discordBot = discordBot;
-    this.log = log;
   }
 
   /** Render permission request as a button row. */
@@ -60,12 +56,7 @@ export class AgentStreamHandler extends BlockRenderer<string> {
   }
 
   protected async sendBlock(target: ChannelTarget, _kind: BlockKind, content: string): Promise<string | null> {
-    try {
-      return await this.discordBot.sendMessage(target.chatId, content);
-    } catch (e) {
-      this.log("error", `sendBlock failed: ${e}`);
-      return null;
-    }
+    return this.discordBot.sendMessage(target.chatId, content);
   }
 
   protected async editBlock(
@@ -75,11 +66,7 @@ export class AgentStreamHandler extends BlockRenderer<string> {
     content: string,
     _sealed: boolean,
   ): Promise<void> {
-    try {
-      await this.discordBot.editMessage(target.chatId, ref, content);
-    } catch (e) {
-      this.log("error", `editBlock failed: ${e}`);
-    }
+    await this.discordBot.editMessage(target.chatId, ref, content);
   }
 }
 
