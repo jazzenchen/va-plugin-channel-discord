@@ -1,6 +1,6 @@
 {
   "name": "@vibearound/plugin-channel-discord",
-  "version": "0.6.6",
+  "version": "0.6.7",
   "private": true,
   "type": "module",
   "description": "VibeAround Discord channel plugin (stdio JSON-RPC)",
@@ -12,7 +12,7 @@
     "start": "node dist/main.js"
   },
   "dependencies": {
-    "@vibearound/plugin-channel-sdk": "^0.6.6",
+    "@vibearound/plugin-channel-sdk": "^0.6.7",
     "discord.js": "^14.18.0"
   },
   "devDependencies": {
