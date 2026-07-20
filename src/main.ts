@@ -24,8 +24,8 @@ runChannelPlugin({
       channelInstanceId,
       actorId,
     ),
-  createRenderer: (bot, log, verbose) =>
-    new AgentStreamHandler(bot, log, verbose),
+  createRenderer: (bot, _log, verbose) =>
+    new AgentStreamHandler(bot, verbose),
   // Heartbeat health check — gateway ws ready + latency under 10s. Discord
   // keeps its own reconnect logic; we just confirm the socket's alive.
   healthCheck: async (bot) => {

@@ -15,13 +15,13 @@ import {
 } from "@vibearound/plugin-channel-sdk";
 import type { DiscordBot } from "./bot.js";
 
-type LogFn = (level: string, msg: string) => void;
+const DISCORD_MESSAGE_LIMIT = 2000;
+type DiscordMessageRef = Array<{ id: string; content: string }>;
 
-export class AgentStreamHandler extends BlockRenderer<string> {
+export class AgentStreamHandler extends BlockRenderer<DiscordMessageRef> {
   private discordBot: DiscordBot;
-  private log: LogFn;
 
-  constructor(discordBot: DiscordBot, log: LogFn, verbose?: Partial<VerboseConfig>) {
+  constructor(discordBot: DiscordBot, verbose?: Partial<VerboseConfig>) {
     super({
       streaming: true,
       flushIntervalMs: 500,
@@ -29,7 +29,6 @@ export class AgentStreamHandler extends BlockRenderer<string> {
       verbose,
     });
     this.discordBot = discordBot;
-    this.log = log;
   }
 
   /** Render permission request as a button row. */
@@ -56,31 +55,71 @@ export class AgentStreamHandler extends BlockRenderer<string> {
   }
 
   protected async sendText(target: ChannelTarget, text: string): Promise<void> {
-    await this.discordBot.sendMessage(target.chatId, text);
+    await this.sendContent(target, text);
   }
 
-  protected async sendBlock(target: ChannelTarget, _kind: BlockKind, content: string): Promise<string | null> {
-    try {
-      return await this.discordBot.sendMessage(target.chatId, content);
-    } catch (e) {
-      this.log("error", `sendBlock failed: ${e}`);
-      return null;
-    }
+  protected async sendBlock(
+    target: ChannelTarget,
+    _kind: BlockKind,
+    content: string,
+  ): Promise<DiscordMessageRef | null> {
+    return this.sendContent(target, content);
   }
 
   protected async editBlock(
     target: ChannelTarget,
-    ref: string,
+    ref: DiscordMessageRef,
     _kind: BlockKind,
     content: string,
     _sealed: boolean,
   ): Promise<void> {
-    try {
-      await this.discordBot.editMessage(target.chatId, ref, content);
-    } catch (e) {
-      this.log("error", `editBlock failed: ${e}`);
+    const chunks = splitDiscordContent(content);
+    const existingCount = Math.min(ref.length, chunks.length);
+
+    for (let index = 0; index < existingCount; index += 1) {
+      if (ref[index].content === chunks[index]) continue;
+      await this.discordBot.editMessage(target.chatId, ref[index].id, chunks[index]);
+      ref[index].content = chunks[index];
+    }
+    for (let index = ref.length; index < chunks.length; index += 1) {
+      ref.push({
+        id: await this.discordBot.sendMessage(target.chatId, chunks[index]),
+        content: chunks[index],
+      });
     }
   }
+
+  private async sendContent(
+    target: ChannelTarget,
+    content: string,
+  ): Promise<DiscordMessageRef> {
+    const ref: DiscordMessageRef = [];
+    for (const chunk of splitDiscordContent(content)) {
+      ref.push({
+        id: await this.discordBot.sendMessage(target.chatId, chunk),
+        content: chunk,
+      });
+    }
+    return ref;
+  }
+}
+
+function splitDiscordContent(content: string): string[] {
+  const chunks: string[] = [];
+  let chunk = "";
+
+  for (const character of content) {
+    if (chunk.length + character.length > DISCORD_MESSAGE_LIMIT) {
+      chunks.push(chunk);
+      chunk = character;
+    } else {
+      chunk += character;
+    }
+  }
+  if (chunk.length > 0 || chunks.length === 0) {
+    chunks.push(chunk);
+  }
+  return chunks;
 }
 
 /** Map permission option kinds to Discord button styles. */

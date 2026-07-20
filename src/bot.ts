@@ -9,6 +9,7 @@
 
 import fs from "node:fs/promises";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import { readBoundedResponse } from "./bounded-response.js";
 import {
   ActionRowBuilder,
@@ -113,9 +114,7 @@ export class DiscordBot {
     if (!channel || !("send" in channel)) {
       throw new Error(`Channel ${chatId} not found or not text-based`);
     }
-    // Discord has a 2000 char limit — truncate if needed
-    const truncated = content.length > 2000 ? content.slice(0, 1997) + "..." : content;
-    const msg = await channel.send(truncated);
+    const msg = await channel.send(content);
     this.messageCache.set(msg.id, msg);
     return msg.id;
   }
@@ -144,17 +143,16 @@ export class DiscordBot {
 
   /** Edit an existing message. */
   async editMessage(chatId: string, messageId: string, content: string): Promise<void> {
-    const truncated = content.length > 2000 ? content.slice(0, 1997) + "..." : content;
     const cached = this.messageCache.get(messageId);
     if (cached) {
-      await cached.edit(truncated);
+      await cached.edit(content);
       return;
     }
     // Fallback: fetch channel and message
     const channel = await this.client.channels.fetch(chatId) as TextBasedChannel | null;
     if (!channel || !("messages" in channel)) return;
     const msg = await channel.messages.fetch(messageId);
-    await msg.edit(truncated);
+    await msg.edit(content);
   }
 
   // --------------------------------------------------------------------------
@@ -167,11 +165,15 @@ export class DiscordBot {
     });
 
     this.client.on(Events.MessageCreate, (message) => {
-      this.handleMessage(message);
+      void this.handleMessage(message).catch((error: unknown) => {
+        this.log("error", `message handler failed: ${extractErrorMessage(error)}`);
+      });
     });
 
     this.client.on(Events.InteractionCreate, (interaction) => {
-      this.handleInteraction(interaction);
+      void this.handleInteraction(interaction).catch((error: unknown) => {
+        this.log("error", `interaction handler failed: ${extractErrorMessage(error)}`);
+      });
     });
 
     this.client.on(Events.Error, (error) => {
@@ -233,7 +235,10 @@ export class DiscordBot {
 
     if (!text && message.attachments.size === 0) return;
 
-    this.log("debug", `message channel=${chatId} text=${(text ?? "").slice(0, 80)}`);
+    this.log(
+      "debug",
+      `message channel=${chatId} text=${Boolean(text)} attachments=${message.attachments.size}`,
+    );
 
     const context = this.channelContext({
       chatId,
@@ -279,7 +284,7 @@ export class DiscordBot {
       }
       contentBlocks.push({
         type: "resource_link",
-        uri: `file://${localPath}`,
+        uri: pathToFileURL(localPath).href,
         name: attachment.name ?? "attachment",
         mimeType: attachment.contentType ?? "application/octet-stream",
       });
@@ -366,8 +371,8 @@ export class DiscordBot {
     chatId: string,
     attachment: Attachment,
   ): Promise<string> {
-    const ext = attachment.name && attachment.name.includes(".")
-      ? `.${attachment.name.split(".").pop()}`
+    const ext = attachment.name
+      ? path.extname(path.posix.basename(attachment.name.replaceAll("\\", "/")))
       : "";
     const dir = path.join(this.cacheDir, "discord", chatId);
     const localPath = path.join(dir, `${attachment.id}${ext}`);
