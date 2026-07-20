@@ -16,7 +16,7 @@ import {
 import type { DiscordBot } from "./bot.js";
 
 const DISCORD_MESSAGE_LIMIT = 2000;
-type DiscordMessageRef = string[];
+type DiscordMessageRef = Array<{ id: string; content: string }>;
 
 export class AgentStreamHandler extends BlockRenderer<DiscordMessageRef> {
   private discordBot: DiscordBot;
@@ -77,10 +77,15 @@ export class AgentStreamHandler extends BlockRenderer<DiscordMessageRef> {
     const existingCount = Math.min(ref.length, chunks.length);
 
     for (let index = 0; index < existingCount; index += 1) {
-      await this.discordBot.editMessage(target.chatId, ref[index], chunks[index]);
+      if (ref[index].content === chunks[index]) continue;
+      await this.discordBot.editMessage(target.chatId, ref[index].id, chunks[index]);
+      ref[index].content = chunks[index];
     }
     for (let index = ref.length; index < chunks.length; index += 1) {
-      ref.push(await this.discordBot.sendMessage(target.chatId, chunks[index]));
+      ref.push({
+        id: await this.discordBot.sendMessage(target.chatId, chunks[index]),
+        content: chunks[index],
+      });
     }
   }
 
@@ -90,7 +95,10 @@ export class AgentStreamHandler extends BlockRenderer<DiscordMessageRef> {
   ): Promise<DiscordMessageRef> {
     const ref: DiscordMessageRef = [];
     for (const chunk of splitDiscordContent(content)) {
-      ref.push(await this.discordBot.sendMessage(target.chatId, chunk));
+      ref.push({
+        id: await this.discordBot.sendMessage(target.chatId, chunk),
+        content: chunk,
+      });
     }
     return ref;
   }
