@@ -24,9 +24,26 @@ function createRenderer(overrides = {}) {
     async sendButtons() {
       return "permission-1";
     },
+    async sendFile(...args) {
+      if (overrides.sendFile) return overrides.sendFile(...args);
+    },
   };
   return new AgentStreamHandler(bot);
 }
+
+test("Discord delegates file delivery to the active channel", async () => {
+  const sent = [];
+  const renderer = createRenderer({
+    sendFile: async (...args) => sent.push(args),
+  });
+
+  await renderer.sendFile(target, {
+    path: "/workspace/report.pdf",
+    name: "report.pdf",
+  });
+
+  assert.deepEqual(sent, [["channel-1", "/workspace/report.pdf", "report.pdf"]]);
+});
 
 test("Discord transport failures reject block delivery", async () => {
   const sendFailure = new Error("Discord send failed");
