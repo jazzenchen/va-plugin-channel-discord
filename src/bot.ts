@@ -119,6 +119,19 @@ export class DiscordBot {
     return msg.id;
   }
 
+  /** Send a local file to a channel. */
+  async sendFile(
+    chatId: string,
+    filePath: string,
+    fileName: string,
+  ): Promise<void> {
+    const channel = await this.client.channels.fetch(chatId) as TextBasedChannel | null;
+    if (!channel || !("send" in channel)) {
+      throw new Error(`Channel ${chatId} not found or not text-based`);
+    }
+    await channel.send({ files: [{ attachment: filePath, name: fileName }] });
+  }
+
   /** Send a message with a row of buttons. Used by permission UI. */
   async sendButtons(
     chatId: string,
