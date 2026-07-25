@@ -10,6 +10,7 @@ import {
   BlockRenderer,
   type BlockKind,
   type ChannelTarget,
+  type OutboundFile,
   type RequestPermissionRequest,
   type VerboseConfig,
 } from "@vibearound/plugin-channel-sdk";
@@ -56,6 +57,13 @@ export class AgentStreamHandler extends BlockRenderer<DiscordMessageRef> {
 
   protected async sendText(target: ChannelTarget, text: string): Promise<void> {
     await this.sendContent(target, text);
+  }
+
+  protected async sendFile(
+    target: ChannelTarget,
+    file: OutboundFile,
+  ): Promise<void> {
+    await this.discordBot.sendFile(target.chatId, file.path, file.name);
   }
 
   protected async sendBlock(
